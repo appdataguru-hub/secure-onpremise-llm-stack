@@ -113,3 +113,14 @@ volumes:
   n8n_data:
 
 ```
+
+---
+
+### 🧪 Тестирование (Testing)
+
+Манифест Docker Compose поддерживается набором регрессионных тестов, проверяющих консистентность сервисов (креденшелы n8n ↔ PostgreSQL, volumes, GPU passthrough, порты):
+
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests/ -v
+
