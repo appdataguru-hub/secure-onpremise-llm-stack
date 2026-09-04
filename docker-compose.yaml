@@ -1,0 +1,65 @@
+services:
+  # 1. Высокопроизводительный локальный инференс LLM
+  vllm-inference:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-core-node
+    command: ["--model", "${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"]
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # 2. Изолированная СУБД с поддержкой векторного поиска для RAG
+  postgres-vector:
+    image: ankane/pgvector:latest
+    container_name: postgres-rag-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dataguru_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:-mas_knowledge_base}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dataguru_admin} -d ${POSTGRES_DB:-mas_knowledge_base}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # 3. Локальный сервер оркестрации бизнес-процессов
+  n8n-automation:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-orchestrator
+    ports:
+      - "5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres-vector
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-mas_knowledge_base}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-dataguru_admin}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres-vector:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  n8n_data:
